@@ -104,7 +104,8 @@ class pyfanuc(object):
 				if t["data"][x][6:12]==b'\x00'*6:
 					t["data"][x]=[0,t["data"][x][12:]]
 				else:
-					t["data"][x]=[unpack('>h',t["data"][x][0:2])[0],t["data"][x][12:]]
+					# Error code is located immediately after the command header.
+					t["data"][x]=[unpack('>h',t["data"][x][6:8])[0],t["data"][x][12:]]
 			else:
 				return {"len":-1}
 		return t
@@ -118,12 +119,21 @@ class pyfanuc(object):
 				return None
 			else:
 				return unpack(">i",val[0:4])[0]/val[5]**val[7]
+	def _axis_count(self):
+		"intern function - return the configured number of controlled axes"
+		try:
+			axes=self.sysinfo.get("axes", b"")
+			if isinstance(axes, bytes):
+				axes=axes.decode(errors="ignore")
+			return int(str(axes).strip())
+		except Exception:
+			return None
 	def statinfo(self):
 		"""
 		Get state of machine
 		"""
 		st=self._req_rdsingle(1,1,0x19,0)
-		if (self.sysinfo["cnctype"]==b"16" or self.sysinfo["cnctype"]==b"31") and st["len"]==0xe:
+		if st["len"]==0xe:
 			return dict(zip(['aut','run','motion','mstb','emegency','alarm','edit'],
 			unpack(">HHHHHHH",st["data"])))
 	def getdate(self):
@@ -201,6 +211,10 @@ class pyfanuc(object):
 				for pos in range(2,unpack(">H",x[1][0:2])[0]+2,8):
 					value=x[1][pos:pos+8]
 					ret1.append(self._decode8(value))
+			if ret1 is not None and axis==pyfanuc.ALLAXIS:
+				axis_count=self._axis_count()
+				if axis_count:
+					ret1=ret1[:axis_count]
 			for u,v,w in axvalues:
 				if what & v:
 					r[u]=ret1
@@ -210,7 +224,7 @@ class pyfanuc(object):
 	def readparam(self,axis,first,last=0):
 		if last==0:last=first
 		st=self._req_rdsingle(1,1,0x0e,first,last,axis)
-		if st["len"]<0:
+		if st["len"]<=0:
 			return
 		r={}
 		for pos in range(0,st["len"],self.sysinfo["maxaxis"]*4+8):
@@ -223,7 +237,7 @@ class pyfanuc(object):
 				elif valtype==1:
 					value=[(value[-1] >> n)& 1 for n in range(7,-1,-1)] #bit 8bit
 				elif valtype==2:
-					value=unpack(">h",value[-2])[0] #short
+					value=unpack(">h",value[-2:])[0] #short
 				elif valtype==3:
 					value=unpack(">i",value)[0] #int
 				if axiscount != -1:
@@ -236,7 +250,7 @@ class pyfanuc(object):
 	def readdiag(self,axis,first,last=0):
 		if last==0:last=first
 		st=self._req_rdsingle(1,1,0x30,first,last,axis)
-		if st["len"]<0:
+		if st["len"]<=0:
 			return
 		r={}
 		for pos in range(0,st["len"],self.sysinfo["maxaxis"]*4+8):
@@ -247,7 +261,7 @@ class pyfanuc(object):
 				if valtype==4 or valtype==0:
 					value=value[-1] #bit 1bit / Byte
 				elif valtype==1:
-					value=unpack(">h",value[-2])[0] #short
+					value=unpack(">h",value[-2:])[0] #short
 				elif valtype==2:
 					value=unpack(">i",value)[0] #int
 				elif valtype==3:
@@ -327,7 +341,7 @@ class pyfanuc(object):
 		ret={}
 		while True:
 			st=self._req_rdsingle(1,1,0x06,start,0x13,2)
-			if st["len"] < -1:
+			if st["len"] < 0:
 				return None
 			elif st["len"]==0:
 				return ret
@@ -447,7 +461,7 @@ class pyfanuc(object):
 			while len(n)>=10:
 				if n[:4]==pyfanuc.FRAMEHEAD:
 					fvers,ftype,flen=unpack(">HHH",n[4:10])
-					if len(n)<flen:
+					if len(n)<10+flen:
 						break
 					n=n[10:]
 					if ftype==0x1604: #a0 a0 a0 a0 00 02 16 04 05 00
