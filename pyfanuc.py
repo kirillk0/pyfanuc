@@ -222,8 +222,8 @@ class pyfanuc(object):
 					what &= ~v
 					break
 		return r
-	def readparam(self,axis,first,last=0):
-		if last==0:last=first
+	def _readparam_legacy(self,axis,first,last):
+		"intern function - read parameters using the legacy cnc_rdparam packet"
 		st=self._req_rdsingle(1,1,0x0e,first,last,axis)
 		if st["len"]<=0:
 			return
@@ -248,6 +248,39 @@ class pyfanuc(object):
 					values["data"].append(value)
 			r[varname]=values
 		return r
+	def _readparam_ext(self,axis,first,last):
+		"intern function - read parameters using cnc_rdparam3 packet 0x8d"
+		st=self._req_rdsingle(1,1,0x8d,first,last,axis)
+		if st["len"]<=0:
+			return
+		r={}
+		entry_len=self.sysinfo["maxaxis"]*8+8
+		for pos in range(0,st["len"],entry_len):
+			entry=st["data"][pos:pos+entry_len]
+			if len(entry)<8:
+				break
+			varname,axiscount,valtype=unpack(">IhH",entry[0:8])
+			values={"type":valtype,"axis":axiscount,"data":[]}
+			for n in range(8,len(entry),8):
+				value=self._decode8(entry[n:n+8])
+				if isinstance(value,float) and value.is_integer():
+					value=int(value)
+				values["data"].append(value)
+				if axiscount != -1:
+					break
+			if axiscount == -1:
+				axis_count=self._axis_count()
+				if axis_count:
+					values["data"]=values["data"][:axis_count]
+			r[varname]=values
+		return r
+	def readparam(self,axis,first,last=0):
+		if last==0:last=first
+		# Older controls answer 0x0e, newer 30i/31i controls may require 0x8d.
+		ret=self._readparam_legacy(axis,first,last)
+		if ret:
+			return ret
+		return self._readparam_ext(axis,first,last)
 	def readdiag(self,axis,first,last=0):
 		if last==0:last=first
 		st=self._req_rdsingle(1,1,0x30,first,last,axis)

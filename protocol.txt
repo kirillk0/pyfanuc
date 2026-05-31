@@ -28,7 +28,7 @@
 01,01,89 axis names
 01,01,8a spindle names
 01,01,8b axis names ( absolute spindle )
-01,01,8d read CNC param (cnc_rdparam3)
+01,01,8d read CNC param (cnc_rdparam3, used as fallback for newer controls)
 
 01,01,96 read GCode (30i)
 01,01,97 read command (cnc_rdcommand), type 19 = T-code/tool command
