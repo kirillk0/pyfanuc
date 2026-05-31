@@ -193,6 +193,7 @@ class pyfanuc(object):
 
 	ABS=1;REL=2;REF=4;SKIP=8;DIST=16
 	ALLAXIS=-1
+	ALLSPINDLES=-1
 	def readaxes(self,what=1,axis=ALLAXIS):
 		r=[]
 		axvalues=(("ABS",pyfanuc.ABS,4),("REL",pyfanuc.REL,6),("REF",pyfanuc.REF,1),("SKIP",pyfanuc.SKIP,8),("DIST",pyfanuc.DIST,7))
@@ -487,6 +488,105 @@ class pyfanuc(object):
 		"""
 		st=self._req_rdsingle(1,1,0x25)
 		return self._decode8(st['data']) if st['len']==8 else None
+
+	def _spindle_names(self):
+		"intern function - read spindle names as 4-byte records"
+		st=self._req_rdsingle(1,1,0x8a,pyfanuc.ALLSPINDLES)
+		if st["len"]<=0:
+			return []
+		names=[]
+		for pos in range(0,st["len"],4):
+			name=st["data"][pos:pos+4].split(b'\0',1)[0].decode(errors="ignore").strip()
+			names.append(name)
+		return names
+	def _readspindlevalue(self,value_type,spindle=ALLSPINDLES):
+		"intern function - read spindle values from cnc_acts2/cnc_rdspmeter packet 0x40"
+		# value_type 4 is spindle load, value_type 5 is spindle speed.
+		st=self._req_rdsingle(1,1,0x40,value_type,spindle)
+		if st["len"]<=0:
+			return
+		if spindle!=pyfanuc.ALLSPINDLES:
+			return self._decode8(st["data"][0:8]) if st["len"]>=8 else None
+		names=self._spindle_names()
+		count=len(names) if names else st["len"]//8
+		ret=[]
+		for pos in range(count):
+			chunk=st["data"][pos*8:pos*8+8]
+			if len(chunk)<8:
+				break
+			ret.append({"name":names[pos] if pos < len(names) else None,"data":self._decode8(chunk)})
+		return ret
+	def readspindleload(self,spindle=ALLSPINDLES):
+		"""
+		Get actual spindle load.
+		Returns a list of {name, load} for all spindles, or a single value if spindle is specified.
+		"""
+		ret=self._readspindlevalue(4,spindle)
+		if isinstance(ret,list):
+			return [{"name":x["name"],"load":x["data"]} for x in ret]
+		return ret
+	def readspindlespeed2(self,spindle=ALLSPINDLES):
+		"""
+		Get actual spindle speed using the extended spindle meter command.
+		Returns a list of {name, speed} for all spindles, or a single value if spindle is specified.
+		"""
+		ret=self._readspindlevalue(5,spindle)
+		if isinstance(ret,list):
+			return [{"name":x["name"],"speed":x["data"]} for x in ret]
+		return ret
+	def readspindlemeter(self,spindle=ALLSPINDLES):
+		"""
+		Get actual spindle load and extended spindle speed.
+		Returns a list of {name, load, speed} for all spindles, or a single dict if spindle is specified.
+		"""
+		loads=self.readspindleload(spindle)
+		speeds=self.readspindlespeed2(spindle)
+		if spindle!=pyfanuc.ALLSPINDLES:
+			return {"load":loads,"speed":speeds}
+		if loads is None and speeds is None:
+			return
+		loads=loads or []
+		speeds=speeds or []
+		ret=[]
+		for pos in range(max(len(loads),len(speeds))):
+			entry={"name":None,"load":None,"speed":None}
+			if pos < len(loads):
+				entry.update(loads[pos])
+			if pos < len(speeds):
+				entry["name"]=entry["name"] or speeds[pos].get("name")
+				entry["speed"]=speeds[pos].get("speed")
+			ret.append(entry)
+		return ret
+	def readcommand(self,type,block=0):
+		"""
+		Read command values (FOCAS cnc_rdcommand equivalent).
+		type 19 returns T-code/current tool command on tested controls.
+		"""
+		st=self._req_rdsingle(1,1,0x97,type,block)
+		if st["len"]<=0:
+			return
+		ret=[]
+		for pos in range(0,st["len"],12):
+			entry=st["data"][pos:pos+12]
+			if len(entry)<12:
+				break
+			address=entry[0:2].split(b'\0',1)[0].decode(errors="ignore")
+			ret.append(dict(zip(['address','number','data','dec'],
+			[address,unpack(">H",entry[2:4])[0],unpack(">i",entry[4:8])[0],unpack(">i",entry[8:12])[0]])))
+		return ret
+	def readacttool(self):
+		"""
+		Get current T-code/tool command using cnc_rdcommand type 19.
+		"""
+		cmd=self.readcommand(19,0)
+		if not cmd:
+			return None
+		ret=cmd[0].copy()
+		ret["tool"]=ret["data"]
+		return ret
+	def readcurrenttool(self):
+		"Alias for readacttool"
+		return self.readacttool()
 
 if __name__ == '__main__':
 	conn=pyfanuc('192.168.0.70')

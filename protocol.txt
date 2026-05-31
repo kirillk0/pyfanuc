@@ -31,6 +31,7 @@
 01,01,8d read CNC param (cnc_rdparam3)
 
 01,01,96 read GCode (30i)
+01,01,97 read command (cnc_rdcommand), type 19 = T-code/tool command
 01,01,a0 read Param info
 01,01,a2 read Diag info
 01,01,a4 (controlled axis 0/spindle 1)

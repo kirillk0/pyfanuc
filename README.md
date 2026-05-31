@@ -26,6 +26,9 @@ The current target platform for protocol-analysis is an EDM-machine with a 160 c
 | getprog | program read test (experimental) |
 | readactfeed | actual feedrate |
 | readactspindlespeed | actual spindlespeed |
+| readspindleload | actual spindle load |
+| readspindlemeter | actual spindle load and speed |
+| readacttool | current T-code/tool command |
 | readaxis | actual axis-values |
 | getdate | read date |
 | gettime | read time |
